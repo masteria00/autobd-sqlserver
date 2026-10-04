@@ -1,0 +1,17 @@
+module.exports = [
+  { name: "Int", sqlType: "INT" },
+  { name: "BigInt", sqlType: "BIGINT" },
+  { name: "Bit", sqlType: "BIT" },
+  { name: "Decimal18", sqlType: "DECIMAL(18,2)" },
+  { name: "Decimal38", sqlType: "DECIMAL(38,18)" },
+  { name: "Float", sqlType: "FLOAT" },
+  { name: "VarChar100", sqlType: "VARCHAR(100)" },
+  { name: "VarCharMax", sqlType: "VARCHAR(MAX)" },
+  { name: "NVarChar100", sqlType: "NVARCHAR(100)" },
+  { name: "NVarCharMax", sqlType: "NVARCHAR(MAX)" },
+  { name: "Date", sqlType: "DATE" },
+  { name: "DateTime", sqlType: "DATETIME" },
+  { name: "DateTime2", sqlType: "DATETIME2(7)" },
+  { name: "UniqueIdentifier", sqlType: "UNIQUEIDENTIFIER" },
+  { name: "VarBinaryMax", sqlType: "VARBINARY(MAX)" },
+];

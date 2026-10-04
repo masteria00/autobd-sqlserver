@@ -1,0 +1,9 @@
+node_modules/
+.npm-cache/
+*.tgz
+test/integration/consumer/generated/
+test/integration/consumer/logs/
+test/integration/consumer/ts-dist/
+test/integration/consumer/js-only/
+docs/
+AGENTS.md

@@ -1,0 +1,25 @@
+{
+  "language": "both",
+  "output": {
+    "directory": "./generated",
+    "groupBySchema": true
+  },
+  "runtime": {
+    "databaseModule": "./database"
+  },
+  "logs": {
+    "directory": "./logs"
+  },
+  "connection": {
+    "encrypt": true,
+    "trustServerCertificate": true
+  },
+  "profiles": {
+    "types": {
+      "mode": "full",
+      "include": {
+        "schemas": ["autobd_types"]
+      }
+    }
+  }
+}

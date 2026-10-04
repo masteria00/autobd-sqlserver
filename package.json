@@ -1,0 +1,37 @@
+{
+  "name": "autobd-sqlserver",
+  "version": "0.1.0",
+  "description": "Generate typed SQL Server stored procedure wrappers from database metadata",
+  "keywords": [
+    "sql-server",
+    "stored-procedures",
+    "code-generation",
+    "typescript"
+  ],
+  "license": "ISC",
+  "bin": {
+    "autobd": "bin/autobd.js"
+  },
+  "main": "./src/generator.js",
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node test/contracts.test.js && node test/outputSafety.test.js"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1",
+    "prettier": "^3.6.2"
+  },
+  "devDependencies": {
+    "@types/mssql": "^12.3.0",
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2"
+  }
+}
