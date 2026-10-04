@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Clarify installation from a repository tarball, consumer runtime and TypeScript dependencies, and the distinction between GitHub uploads and npm publication.
+- Clarify installation from a repository tarball, add a JavaScript quick start with common procedure calls, and explain how to check generated results.
 - Add contributor engineering principles and correct the contributor guide to use the repository root.
 
 ## 0.1.0

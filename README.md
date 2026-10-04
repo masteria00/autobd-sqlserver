@@ -6,7 +6,16 @@ Requires Node.js 22 or newer.
 
 ## First use (including AI agents)
 
-AutoBD reads metadata from an **existing, reachable SQL Server database**. Before generating an API, provide the database connection through `DB_USER`, `DB_PASSWORD`, `DB_SERVER`, `DB_DATABASE`, and `DB_PORT`, and identify the stored procedures the API should expose. AutoBD generates wrappers; it does not create the database or decide the API's routes and business rules.
+AutoBD reads metadata from an **existing, reachable SQL Server database** and generates JavaScript or TypeScript functions for its stored procedures. It does not create the database, procedures, API routes, or business rules.
+
+The usual flow is:
+
+1. Install AutoBD in your API project and provide a SQL Server connection.
+2. Choose which procedures to generate in `config.autobd.json`.
+3. Run the generator and check its report for skipped procedures.
+4. Import a generated function and call it with the procedure's parameters.
+
+The examples below use illustrative procedures named `dbo.GetCustomerById`, `dbo.ListCustomers`, and `dbo.CreateCustomer`. They work only if your SQL Server database contains procedures with those names and parameter shapes. Replace the example names and parameters with procedures from your database.
 
 ## Installation from the repository
 
@@ -14,7 +23,6 @@ Until the package is published to npm, install a packed tarball. Download or clo
 
 ```sh
 npm ci
-npm test
 npm pack
 ```
 
@@ -32,13 +40,13 @@ Replace the path placeholder; do not copy the angle brackets literally. For exam
 npm install ./autobd-sqlserver-0.1.0.tgz mssql
 ```
 
-Installing the package provides the local `autobd` CLI; use it through the npm scripts below. Running `npm ci` in this repository prepares the generator for development, but does not install it in the API project. To update the installed generator after a source change, create a new tarball with `npm pack` and reinstall it in the consumer project.
+Installing the package provides the local `autobd` CLI; use it through the npm scripts below. Running `npm ci` in the repository installs the dependencies needed to create the tarball; it does not install AutoBD in the API project. To update the installed generator after a source change, create a new tarball with `npm pack` and reinstall it in the consumer project.
 
 After publication to npm, consumers can instead install the published package with `npm install autobd-sqlserver mssql`. Uploading the repository to GitHub does not publish it to npm.
 
 ## Consumer setup and generation
 
-Create `config.autobd.json` and `database.js` in the project using the examples below. Add these scripts to the project's `package.json` so the installed local CLI works on Windows, macOS, and Linux:
+Create `config.autobd.json` and `database.js` in the API project using the examples below. Add these scripts to the project's `package.json` so the installed local CLI works on Windows, macOS, and Linux:
 
 ```json
 {
@@ -49,11 +57,89 @@ Create `config.autobd.json` and `database.js` in the project using the examples 
 }
 ```
 
-Set the `DB_*` environment variables, then run `npm run autoBD` for the first full generation. Check `logs.directory/autoBD-last-run.json` before using the generated functions. This README also covers later regeneration of individual procedures; an AI using AutoBD should follow the same steps.
+Set the `DB_*` environment variables, then run `npm run autoBD` for the first full generation. Check `logs.directory/autoBD-last-run.json` before using the generated functions.
 
-The command runs in the consumer project. It reads `config.autobd.json` from the current directory unless `--config` points to another file. Relative paths in the configuration resolve from the configuration file's directory. If a procedure cannot be mapped, AutoBD reports its name and cause, skips its wrapper, and continues generating the other objects. This completes with exit code 0 and `status: "partial"` in the run report. Configuration, connection, and file-generation errors still stop the command with a nonzero exit code.
+### Choose what to generate
 
-For one changed procedure, run `npm run autoBD:sp -- dbo.ProcedureName`. This overrides the default profile with incremental generation, selects only that SP, and includes required TVPs. Do not combine `--procedure` with `--profile`. For several changed objects, use targeted runs or an incremental profile. If a procedure was renamed or deleted, run the full profile so its former wrapper is removed. Use `npm run autoBD` when the complete output should be rebuilt.
+This example generates procedures in the `dbo` schema as JavaScript and puts the wrappers in `generated/`:
+
+```json
+{
+  "defaultProfile": "full",
+  "language": "js",
+  "output": { "directory": "./generated", "groupBySchema": true },
+  "runtime": { "databaseModule": "./database" },
+  "logs": { "directory": "./logs" },
+  "profiles": {
+    "full": {
+      "mode": "full",
+      "include": {
+        "procedures": ["dbo.GetCustomerById", "dbo.ListCustomers", "dbo.CreateCustomer"]
+      }
+    }
+  }
+}
+```
+
+Use exact schema-qualified SQL procedure names in `include.procedures`. You can instead select a schema with `"schemas": ["dbo"]`; this includes eligible tables and views from that schema too. Choose `"language": "both"` to generate JavaScript and TypeScript output. The default language, when omitted, is JavaScript.
+
+Put the metadata connection settings in environment variables rather than in the config file. For example, in PowerShell:
+
+```powershell
+$env:DB_USER = "your_user"
+$env:DB_PASSWORD = "your_password"
+$env:DB_SERVER = "localhost"
+$env:DB_DATABASE = "your_database"
+$env:DB_PORT = "1433"
+npm run autoBD
+```
+
+After generation, inspect `logs/autoBD-last-run.json`. Make sure every requested procedure appears under `generated.procedures`; an entry under `skippedProcedures` has no current wrapper.
+
+### Call a generated procedure
+
+With the example output directory and `dbo` schema, AutoBD creates `generated/index.js`, which re-exports generated functions. The public function name combines the schema and procedure name, replacing characters that are invalid in JavaScript identifiers with underscores. For example, `dbo.GetCustomerById` becomes `dbo_GetCustomerById`:
+
+```js
+const { dbo_GetCustomerById } = require("./generated");
+
+async function showCustomer(id) {
+  const result = await dbo_GetCustomerById({ CustomerId: id });
+  return result.recordset[0] ?? null;
+}
+```
+
+Pass procedure inputs as an object whose property names match the SQL parameter names without the `@` prefix. The wrapper executes the original schema-qualified procedure name with parameterized `mssql` inputs. It resolves to an object containing `recordset`, `recordsets`, `output`, `returnValue`, and `rowsAffected`. For a query returning rows, `recordset` is the first result set. A lookup usually reads its first row, while a list can return all rows:
+
+```js
+const { dbo_ListCustomers } = require("./generated");
+
+async function listCustomers() {
+  const { recordset } = await dbo_ListCustomers();
+  return recordset;
+}
+```
+
+For a create procedure, SQL Server determines what comes back. If it returns the created row with `SELECT`, read `recordset[0]`. If it uses output parameters, read `result.output`. If it returns no rows, check `result.rowsAffected` or `result.returnValue`, depending on the procedure:
+
+```js
+const { dbo_CreateCustomer } = require("./generated");
+
+async function createCustomer(name) {
+  const result = await dbo_CreateCustomer({ Name: name });
+  return { customer: result.recordset[0] ?? null, rowsAffected: result.rowsAffected };
+}
+```
+
+This example assumes `dbo.CreateCustomer` accepts `@Name`. Adapt the call to the real procedure. If it returns output parameters, read them from `result.output`. Omit an optional input, or pass `undefined`, to let SQL Server apply its default; pass `null` when you intend SQL NULL.
+
+Call wrappers from your existing application code. A framework route can call a small function like `showCustomer` or `createCustomer`; AutoBD does not create API routes.
+
+For TypeScript output, import from `./generated` in a `.ts` file. AutoBD generates typed procedure functions and result shapes from SQL Server metadata or a configured result contract.
+
+Run the command from the API project, where `config.autobd.json` is located. If a procedure cannot be mapped, AutoBD records its name and reason, skips that wrapper, and continues with other objects. The run report shows `status: "partial"`; check it even when the command exits successfully. Invalid configuration, connection, or file-generation errors stop the command with a nonzero exit code.
+
+To regenerate one changed procedure and its required TVPs, run `npm run autoBD:sp -- dbo.ProcedureName`, using its exact SQL schema and name. Run `npm run autoBD` to rebuild the full selection, including after renaming or deleting a procedure. Do not combine `--procedure` with `--profile`.
 
 ## Connection and runtime
 
@@ -61,27 +147,9 @@ Set `DB_USER`, `DB_PASSWORD`, `DB_SERVER`, `DB_DATABASE`, and `DB_PORT` in the c
 
 For a local SQL Server with a self-signed certificate, set `"connection": { "trustServerCertificate": true }` in the project config. This should be an explicit choice of the consumer.
 
-Example configuration:
+`runtime.databaseModule` points to the API project's CommonJS connection module. It must export `using(callback)`, which passes the consumer's `mssql` connection pool to generated functions. AutoBD uses its own metadata connection while generating; generated functions use the consumer's pool shown in `database.js` below.
 
-```json
-{
-  "defaultProfile": "full",
-  "language": "js",
-  "output": { "directory": "./generated/db", "groupBySchema": true },
-  "runtime": { "databaseModule": "./database" },
-  "logs": { "directory": "./autobd-logs" },
-  "profiles": {
-    "full": {
-      "mode": "full",
-      "include": { "schemas": ["dbo"] }
-    }
-  }
-}
-```
-
-`runtime.databaseModule` is the consumer's CommonJS module used by generated procedures. It must export `using(callback)`, where the callback receives an `mssql` connection pool. AutoBD uses its own connection only to inspect SQL metadata. The consumer owns the runtime pool and its lifecycle.
-
-For TypeScript output, provide a matching `.d.ts` for that runtime module. Its `using` method should type the callback pool as `sql.ConnectionPool`. Install the compiler and types in the consumer project:
+For TypeScript output, provide a matching `.d.ts` for the runtime module, with the callback pool typed as `sql.ConnectionPool`. Install the compiler and types in the consumer project:
 
 ```sh
 npm install --save-dev typescript @types/node @types/mssql
@@ -112,16 +180,12 @@ module.exports = {
 };
 ```
 
-Generated procedure functions return `{ recordset, recordsets, output, returnValue, rowsAffected }`. Calls use parameterized `mssql` requests. Omit an optional input or pass `undefined` to let SQL Server apply its default; pass `null` to send SQL NULL.
+Generated procedure functions return `{ recordset, recordsets, output, returnValue, rowsAffected }` and use parameterized `mssql` requests. For optional SQL parameters, omit the property or pass `undefined` to use the SQL default; pass `null` to send SQL NULL.
 
-When SQL Server cannot describe a procedure result, attach an `AutoBD.ResultContract` JSON extended property to the procedure. The same contract declares multiple resultsets, variants, and `optionalParameters`. For example, a procedure with an `iMode` default and one `int` column can use `{"optionalParameters":["iMode"],"variants":[{"resultSets":[{"columns":[{"name":"iValue","sqlType":"int","isNullable":false}]}]}]}`. Store the property beside the procedure in SQL Server, using `sys.sp_addextendedproperty` or `sys.sp_updateextendedproperty`.
+Most procedures are described directly from SQL Server metadata. If SQL Server cannot describe a procedure's result, an `AutoBD.ResultContract` extended property can declare its result columns, variants, and optional parameters. Add or update it with `sys.sp_addextendedproperty` or `sys.sp_updateextendedproperty`.
 
-The last run is written to `logs.directory/autoBD-last-run.json`. Confirm that every requested procedure appears in `generated.procedures`; if one appears in `skippedProcedures`, its wrapper was not regenerated even when the command exited with code 0. Partial runs and fatal failures **after configuration is loaded** also update `autoBD-last-failure.json`, including every skipped procedure and its cause. A missing or invalid config is printed to the console with a nonzero exit code because the log directory is not yet known. A partial full run excludes invalid wrappers from the regenerated output; a partial incremental run removes stale wrappers for its failed selected procedures. Full generation deletes only files bearing AutoBD's generated marker and refuses to overwrite hand-written files. Generated wrappers and reports are written in the consumer project, never inside this package.
+The run report is written to the configured logs directory. Confirm that requested procedures appear in `generated.procedures` and not in `skippedProcedures`. On a partial run, AutoBD also writes a failure report with the reason for each skipped procedure. Full generation removes only AutoBD-generated files and refuses to overwrite hand-written files. Wrappers and reports are written in the API project, never inside this package.
 
 ## Precision limits verified against SQL Server
 
 `BIGINT` is mapped to a decimal string, including values above `Number.MAX_SAFE_INTEGER`. `DECIMAL`/`NUMERIC` currently use `mssql`/Tedious numeric binding and a JavaScript `number` for result columns and OUTPUT parameters. High-precision values can be rounded before SQL Server receives them or when they are read back; `DECIMAL(38,18)` can also be rejected by the driver. Do not use these wrappers for exact high-precision amounts without validating the value and contract separately. A stored procedure can explicitly return `CONVERT(VARCHAR(...), DecimalColumn)` when an exact textual SELECT value is required. `DATETIME2(4..7)` results are exposed as JavaScript `Date` values and retain only milliseconds.
-
-## Contributing
-
-Work from the repository root and follow [AGENTS.md](AGENTS.md) and the [engineering principles](docs/engineering-principles.md). Run `npm ci` and `npm test` for package changes; follow AGENTS.md for the additional SQL Server integration checks required by generator changes. Contributor guides and tests are available in the repository; the npm tarball contains the runtime package and consumer documentation.
